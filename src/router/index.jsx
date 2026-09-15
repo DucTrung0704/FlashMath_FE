@@ -38,10 +38,13 @@ import StudentStudy from '../views/Student/Study';
 import StudentProgress from '../views/Student/Progress';
 import StudentLibrary from '../views/Student/Library';
 import StudentFlashcardStudy from '../views/Student/FlashcardStudy';
+import FlashcardExam from '../views/Student/FlashcardExam';
+import FlashcardExamDetail from '../views/Student/FlashcardExamDetail';
 import StudentExams from '../views/Student/Exams';
 import MySubmissions from '../views/Student/MySubmissions';
 import SubmissionDetail from '../views/Student/SubmissionDetail';
 import StudentClasses from '../views/Student/Classes';
+import StudentClassDetail from '../views/Student/ClassDetail';
 
 // Teacher Views
 import TeacherStudents from '../views/Teacher/Students';
@@ -65,17 +68,17 @@ import DeckDetail from '../views/Flashcards/DeckDetail';
 export function AppRouter() {
   return (
     <Routes>
-      {/* ========== PUBLIC ROUTES ========== */}
+
       <Route path="/" element={<GuestRoute><Home /></GuestRoute>} />
       <Route path="/not-authorized" element={<NotAuthorized />} />
       
-      {/* ========== AUTH ROUTES (Guest Only) ========== */}
+
       <Route path="/login" element={<GuestRoute><Login /></GuestRoute>} />
       <Route path="/register/student" element={<GuestRoute><RegisterStudent /></GuestRoute>} />
       <Route path="/register/teacher" element={<GuestRoute><RegisterTeacher /></GuestRoute>} />
       <Route path="/forgot-password" element={<GuestRoute><ForgotPassword /></GuestRoute>} />
       
-      {/* ========== ADMIN DASHBOARD ROUTES ========== */}
+
       <Route
         path="/dashboard/admin"
         element={
@@ -94,7 +97,7 @@ export function AppRouter() {
         <Route path="settings" element={<Settings />} />
       </Route>
       
-      {/* ========== TEACHER DASHBOARD ROUTES ========== */}
+
       <Route
         path="/dashboard/teacher"
         element={
@@ -113,12 +116,12 @@ export function AppRouter() {
         <Route path="classes" element={<TeacherClasses />} />
         <Route path="classes/:id" element={<TeacherClassDetail />} />
         <Route path="analytics" element={<TeacherAnalytics />} />
+        <Route path="profile" element={<Profile />} />
         <Route path="settings" element={<TeacherSettings />} />
         
       </Route>
       
-      {/* ========== TEACHER STUDY ROUTE (with layout) ========== */}
-      {/* Keep teacher study under dashboard namespace */}
+
       <Route
         path="/dashboard/teacher/flashcards/:id/study"
         element={
@@ -130,7 +133,7 @@ export function AppRouter() {
         <Route index element={<Study />} />
       </Route>
 
-      {/* General study route for authenticated users */}
+
       <Route
         path="/decks/:id/study"
         element={
@@ -140,7 +143,6 @@ export function AppRouter() {
         }
       />
       
-      {/* ========== STUDENT DASHBOARD ROUTES ========== */}
       <Route
         path="/dashboard/student"
         element={
@@ -152,16 +154,19 @@ export function AppRouter() {
         <Route index element={<StudentDashboard />} />
         <Route path="library" element={<StudentLibrary />} />
         <Route path="library/:id/study" element={<StudentFlashcardStudy />} />
+        <Route path="flashcard-exam/:id" element={<FlashcardExam />} />
+        <Route path="flashcard-exam-detail/:submissionId" element={<FlashcardExamDetail />} />
         <Route path="study" element={<StudentStudy />} />
         <Route path="exams" element={<StudentExams />} />
         <Route path="progress" element={<StudentProgress />} />
         <Route path="submissions" element={<MySubmissions />} />
         <Route path="exams/:submissionId" element={<SubmissionDetail />} />
         <Route path="class" element={<StudentClasses />} />
+        <Route path="class/:id" element={<StudentClassDetail />} />
         <Route path="profile" element={<Profile />} />
       </Route>
       
-      {/* ========== PROFILE ROUTE ========== */}
+
       <Route
         path="/profile"
         element={
@@ -171,8 +176,6 @@ export function AppRouter() {
         }
       />
       
-      {/* ========== FLASHCARD ROUTES ========== */}
-      {/* Note: More specific routes must come before less specific ones */}
       <Route
         path="/decks/create"
         element={
@@ -198,7 +201,6 @@ export function AppRouter() {
         }
       />
       
-      {/* ========== EXAM ROUTES ========== */}
       <Route
         path="/exams"
         element={

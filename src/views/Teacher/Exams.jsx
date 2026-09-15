@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Eye, Edit, TrendingUp, Search, FileText, Users, Clock, CheckCircle, Trash2, X, Filter, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, MoreVertical, Sparkles, Loader2, Check } from 'lucide-react';
+import { Plus, Eye, Edit, TrendingUp, Search, FileText, Users, Clock, CheckCircle, Trash2, X, Filter, ArrowUpDown, ArrowUp, ArrowDown, ChevronLeft, ChevronRight, MoreVertical, Sparkles, Loader2, Check, Brain, AlertCircle, ThumbsUp, AlertTriangle, Lightbulb, Clipboard, RotateCw, ArrowRight, Circle } from 'lucide-react';
 import { examService } from '../../services/examService';
 import { questionService } from '../../services/questionService';
 import { aiService } from '../../services/aiService';
+import { submissionService } from '../../services/submissionService';
+import { api } from '../../services/api';
 
 export default function TeacherExams() {
   const navigate = useNavigate();
@@ -19,8 +21,8 @@ export default function TeacherExams() {
   const defaultFormState = {
     title: '',
     description: '',
-    subject: '',
-    className: '',
+    subject: 'Mathematics',
+    classId: '',
     date: '',
     time: '',
     time_limit: '90',
@@ -28,6 +30,8 @@ export default function TeacherExams() {
     isPublic: true
   };
   const [form, setForm] = useState(defaultFormState);
+  const [classes, setClasses] = useState([]);
+  const [loadingClasses, setLoadingClasses] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [stepError, setStepError] = useState('');
   const [sortField, setSortField] = useState(null);
@@ -39,6 +43,14 @@ export default function TeacherExams() {
   const [filterRules, setFilterRules] = useState([]);
   const [tempFilter, setTempFilter] = useState({ field: 'title', operator: 'contains', value: '' });
   const questionTagOptions = ['geometry', 'algebra', 'probability', 'calculus', 'statistics', 'other'];
+  const questionTagLabels = {
+    'geometry': 'Hình học',
+    'algebra': 'Đại số',
+    'probability': 'Xác suất',
+    'calculus': 'Giải tích',
+    'statistics': 'Thống kê',
+    'other': 'Khác'
+  };
   const questionDifficultyOptions = [
     { value: 'easy', label: 'Dễ', helper: 'Nhớ lại và kiến thức cơ bản' },
     { value: 'medium', label: 'Trung Bình', helper: 'Mức độ luyện tập cân bằng' },
@@ -76,6 +88,13 @@ export default function TeacherExams() {
     count: 5,
     tag: 'other'
   });
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationResult, setValidationResult] = useState(null);
+  const [showValidationResult, setShowValidationResult] = useState(false);
+  const [showCorrectAnswerModal, setShowCorrectAnswerModal] = useState(false);
+  const [suggestedCorrectOption, setSuggestedCorrectOption] = useState(null);
+  const [showSubjectRelevanceModal, setShowSubjectRelevanceModal] = useState(false);
+  const [subjectRelevanceMessage, setSubjectRelevanceMessage] = useState('');
 
   useEffect(() => {
     loadExams();
@@ -330,6 +349,8 @@ export default function TeacherExams() {
     });
     setQuestionError('');
     setQuestionSuccess('');
+    setValidationResult(null);
+    setShowValidationResult(false);
   };
 
   // Load questions from bank
@@ -377,7 +398,22 @@ export default function TeacherExams() {
     }
   }, [questionMode, showCreateModal, bankSearchTerm, bankTagFilter, bankDifficultyFilter]);
 
-  const openCreateModal = () => {
+  // Load classes from API
+  const loadClasses = async () => {
+    try {
+      setLoadingClasses(true);
+      const data = await api.get('/class/teacher/my-classes');
+      const classesArray = Array.isArray(data) ? data : (data.classes || []);
+      setClasses(classesArray);
+    } catch (err) {
+      console.error('Error loading classes:', err);
+      setError('Không thể tải danh sách lớp học. Vui lòng thử lại.');
+    } finally {
+      setLoadingClasses(false);
+    }
+  };
+
+  const openCreateModal = async () => {
     setForm({ ...defaultFormState });
     setQuestionList([]);
     resetQuestionForm();
@@ -389,6 +425,8 @@ export default function TeacherExams() {
     setBankSearchTerm('');
     setBankTagFilter('all');
     setBankDifficultyFilter('all');
+    // Load classes when opening modal
+    await loadClasses();
     setShowCreateModal(true);
   };
 
@@ -405,29 +443,20 @@ export default function TeacherExams() {
           setStepError('Vui lòng nhập tiêu đề bài thi.');
           return false;
         }
-        if (!form.subject) {
-          setStepError('Vui lòng chọn môn học.');
-          return false;
-        }
-        if (!form.className) {
+        // Subject is always Mathematics, no need to validate
+        if (!form.classId) {
           setStepError('Vui lòng chọn lớp.');
           return false;
         }
-        if (!form.date) {
-          setStepError('Vui lòng chọn ngày thi.');
+        if (!form.date || !form.time) {
+          setStepError('Vui lòng chọn ngày và giờ thi.');
           return false;
         }
-        // Kiểm tra ngày không được trong quá khứ
-        const selectedDate = new Date(form.date);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0); // Reset giờ về 00:00:00 để so sánh chỉ ngày
-        selectedDate.setHours(0, 0, 0, 0);
-        if (selectedDate < today) {
-          setStepError('Ngày thi không được trong quá khứ. Vui lòng chọn ngày hôm nay hoặc ngày trong tương lai.');
-          return false;
-        }
-        if (!form.time) {
-          setStepError('Vui lòng chọn giờ thi.');
+        // Kiểm tra ngày và giờ không được trong quá khứ
+        const selectedDateTime = new Date(`${form.date}T${form.time}`);
+        const now = new Date();
+        if (selectedDateTime < now) {
+          setStepError('Ngày và giờ thi không được trong quá khứ. Vui lòng chọn thời gian trong tương lai.');
           return false;
         }
         const parsedDuration = Number(form.time_limit);
@@ -559,9 +588,68 @@ export default function TeacherExams() {
     const trimmedAnswer = selectedOptionValue.trim();
     const optionsPayload = trimmedOptions;
 
+    // Tự động gọi AI để kiểm tra đáp án trước khi lưu
     try {
       setIsQuestionSubmitting(true);
       setQuestionError('');
+      setQuestionSuccess('');
+
+      // Gọi AI để validate câu hỏi
+      const validationResponse = await aiService.validateQuestion({
+        question: trimmedQuestion,
+        options: trimmedOptions,
+        correctOption: questionForm.correctOption,
+        answer: trimmedAnswer,
+        tag: questionForm.tag,
+        difficulty: questionForm.difficulty,
+        subject: form.subject,
+        explanation: questionForm.explanation?.trim() || undefined
+      });
+
+      const validation = validationResponse?.validation || validationResponse?.data?.validation;
+      
+      // Kiểm tra nếu câu hỏi không liên quan đến toán
+      if (validation && validation.isSubjectRelevant === false) {
+        const subjectMessage = validation.subjectRelevance || 'Câu hỏi này không liên quan đến Toán học. Vui lòng tạo câu hỏi về Toán.';
+        setSubjectRelevanceMessage(subjectMessage);
+        setShowSubjectRelevanceModal(true);
+        setIsQuestionSubmitting(false);
+        return;
+      }
+      
+      // Kiểm tra nếu đáp án sai
+      if (validation && validation.isAnswerCorrect === false) {
+        // Hiển thị modal để người dùng chọn sửa đáp án
+        setSuggestedCorrectOption(validation.correctOption);
+        setValidationResult(validation);
+        setShowCorrectAnswerModal(true);
+        setIsQuestionSubmitting(false);
+        return;
+      }
+
+      // Nếu đáp án đúng và liên quan đến toán, tiếp tục lưu
+      await saveQuestion(trimmedQuestion, trimmedAnswer, optionsPayload, questionForm.correctOption);
+    } catch (err) {
+      console.error('Error validating or saving question:', err);
+      // Nếu lỗi AI, vẫn cho phép lưu (fallback)
+      if (err.message && err.message.includes('AI')) {
+        setQuestionError('Không thể kiểm tra bằng AI. Bạn có muốn tiếp tục lưu không?');
+        // Vẫn cho phép lưu nếu AI service không khả dụng
+        await saveQuestion(trimmedQuestion, trimmedAnswer, optionsPayload, questionForm.correctOption);
+      } else {
+        setQuestionError(err?.message || 'Không thể tạo câu hỏi. Vui lòng thử lại.');
+        setIsQuestionSubmitting(false);
+      }
+    }
+  };
+
+  // Hàm riêng để lưu câu hỏi
+  const saveQuestion = async (trimmedQuestion, trimmedAnswer, optionsPayload, correctOptionToUse = null) => {
+    try {
+      setIsQuestionSubmitting(true);
+      setQuestionError('');
+
+      const correctOption = correctOptionToUse || questionForm.correctOption;
 
       const payload = {
         question: trimmedQuestion,
@@ -570,7 +658,7 @@ export default function TeacherExams() {
         difficulty: questionForm.difficulty,
         explanation: questionForm.explanation?.trim() || undefined,
         options: optionsPayload,
-        correctOption: questionForm.correctOption
+        correctOption: correctOption
       };
 
       const response = await questionService.createQuestion(payload);
@@ -585,7 +673,7 @@ export default function TeacherExams() {
         tag: created?.tag || questionForm.tag,
         difficulty: created?.difficulty || questionForm.difficulty,
         options: created?.options || optionsPayload,
-        correctOption: created?.correctOption || (optionsPayload ? questionForm.correctOption : undefined)
+        correctOption: created?.correctOption || (optionsPayload ? correctOption : undefined)
       };
 
       setQuestionList((prev) => [...prev, normalizedQuestion]);
@@ -601,9 +689,48 @@ export default function TeacherExams() {
       console.error('Failed to create question:', err);
       setQuestionError(err?.message || 'Không thể tạo câu hỏi. Vui lòng thử lại.');
       setQuestionSuccess('');
+      throw err; // Re-throw để handleAddQuestion có thể xử lý
     } finally {
       setIsQuestionSubmitting(false);
     }
+  };
+
+  // Xử lý khi người dùng chọn sửa đáp án
+  const handleFixCorrectAnswer = async () => {
+    if (suggestedCorrectOption) {
+      const newAnswer = questionForm.options[suggestedCorrectOption]?.trim() || '';
+      const trimmedQuestion = questionForm.question.trim();
+      const trimmedOptions = Object.entries(questionForm.options || {}).reduce((acc, [key, value]) => {
+        acc[key] = (value || '').trim();
+        return acc;
+      }, { ...emptyOptions });
+      
+      // Cập nhật form với đáp án đúng
+      setQuestionForm(prev => ({
+        ...prev,
+        correctOption: suggestedCorrectOption,
+        answer: newAnswer
+      }));
+      
+      setShowCorrectAnswerModal(false);
+      setValidationResult(null);
+      setSuggestedCorrectOption(null);
+      
+      // Lưu với đáp án đúng
+      await saveQuestion(trimmedQuestion, newAnswer, trimmedOptions, suggestedCorrectOption);
+    }
+  };
+
+  // Xử lý khi người dùng chọn giữ nguyên đáp án
+  const handleKeepCurrentAnswer = async () => {
+    setShowCorrectAnswerModal(false);
+    const trimmedQuestion = questionForm.question.trim();
+    const trimmedOptions = Object.entries(questionForm.options || {}).reduce((acc, [key, value]) => {
+      acc[key] = (value || '').trim();
+      return acc;
+    }, { ...emptyOptions });
+    const trimmedAnswer = trimmedOptions[questionForm.correctOption]?.trim() || '';
+    await saveQuestion(trimmedQuestion, trimmedAnswer, trimmedOptions);
   };
 
   const handleRemoveQuestion = (questionId) => {
@@ -671,6 +798,58 @@ export default function TeacherExams() {
     }
   };
 
+  // Validate question using AI
+  const handleValidateQuestion = async () => {
+    const trimmedQuestion = questionForm.question.trim();
+    const trimmedOptions = Object.entries(questionForm.options || {}).reduce((acc, [key, value]) => {
+      acc[key] = (value || '').trim();
+      return acc;
+    }, { ...emptyOptions });
+
+    // Basic validation
+    if (!trimmedQuestion) {
+      setQuestionError('Vui lòng nhập câu hỏi trước khi kiểm thử.');
+      return;
+    }
+
+    const missingOption = Object.entries(trimmedOptions).find(([, value]) => !value);
+    if (missingOption) {
+      setQuestionError('Vui lòng điền đầy đủ tất cả các lựa chọn (A, B, C, D) trước khi kiểm thử.');
+      return;
+    }
+
+    if (!questionForm.correctOption) {
+      setQuestionError('Vui lòng chọn đáp án đúng trước khi kiểm thử.');
+      return;
+    }
+
+    try {
+      setIsValidating(true);
+      setQuestionError('');
+      setShowValidationResult(true);
+
+      const response = await aiService.validateQuestion({
+        question: trimmedQuestion,
+        options: trimmedOptions,
+        correctOption: questionForm.correctOption,
+        answer: trimmedOptions[questionForm.correctOption] || questionForm.answer,
+        tag: questionForm.tag,
+        difficulty: questionForm.difficulty,
+        subject: form.subject,
+        explanation: questionForm.explanation?.trim() || undefined
+      });
+
+      const validation = response?.validation || response?.data?.validation;
+      setValidationResult(validation);
+    } catch (err) {
+      console.error('Error validating question:', err);
+      setQuestionError(err.message || 'Không thể kiểm thử câu hỏi bằng AI. Vui lòng thử lại.');
+      setShowValidationResult(false);
+    } finally {
+      setIsValidating(false);
+    }
+  };
+
   // Add AI generated questions to exam
   const handleAddAIGeneratedQuestions = (selectedIndices) => {
     const questionsToAdd = aiGeneratedQuestions
@@ -708,10 +887,12 @@ export default function TeacherExams() {
   };
 
   const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric', 
+    if (isNaN(date.getTime())) return 'N/A';
+    return date.toLocaleDateString('vi-VN', { 
+      day: 'numeric',
+      month: 'numeric', 
       year: 'numeric' 
     });
   };
@@ -720,23 +901,170 @@ export default function TeacherExams() {
     try {
       setLoading(true);
       setError('');
+      
+      // Load exams
       const res = await examService.listMyExams();
       const list = Array.isArray(res?.exams) ? res.exams : (Array.isArray(res) ? res : []);
-      const normalized = list.map(e => ({
-        id: e._id || e.id,
-        title: e.title,
-        subject: e.subject || 'General',
-        date: e.date || e.scheduled_at || e.createdAt,
-        time: e.time || '09:00',
-        duration: e.time_limit || e.duration || 60,
-        totalQuestions: Array.isArray(e.flashcards) ? e.flashcards.length : (e.totalQuestions || 0),
-        enrolledStudents: 0,
-        completedStudents: 0,
-        avgScore: 0,
-        status: e.status || (e.isPublic ? 'scheduled' : 'draft'),
-        type: e.type || 'Exam',
-        description: e.description || ''
-      }));
+      
+      // Load classes to map class IDs to names and find which class contains each exam
+      let classesMap = {};
+      let examToClassMap = {}; // Map exam ID to class name
+      let examToClassIdMap = {}; // Map exam ID to class ID
+      let classStudentsMap = {}; // Map class ID to number of students
+      try {
+        const classesRes = await api.get('/class/teacher/my-classes');
+        const classesArray = Array.isArray(classesRes) ? classesRes : (classesRes.classes || []);
+        
+        // Create map of class ID to class name and student count
+        classesMap = classesArray.reduce((acc, cls) => {
+          const classId = cls._id || cls.id;
+          acc[classId] = cls.name || 'Lớp không có tên';
+          return acc;
+        }, {});
+        
+        // Find which class contains each exam and get student count
+        classesArray.forEach((cls) => {
+          const classId = cls._id || cls.id;
+          const className = cls.name || 'Lớp không có tên';
+          const exams = cls.exams || [];
+          const students = cls.students || [];
+          const studentCount = Array.isArray(students) ? students.length : 0;
+          
+          classStudentsMap[classId] = studentCount;
+          
+          exams.forEach((examIdItem) => {
+            // Normalize exam ID
+            const examId = typeof examIdItem === 'string' 
+              ? examIdItem 
+              : (examIdItem?._id || examIdItem?.id || String(examIdItem));
+            
+            if (examId && examId !== 'undefined' && examId !== 'null') {
+              // If exam is in multiple classes, use the first one found
+              if (!examToClassMap[examId]) {
+                examToClassMap[examId] = className;
+                examToClassIdMap[examId] = classId;
+              }
+            }
+          });
+        });
+      } catch (classError) {
+        console.error('Error loading classes for exam display:', classError);
+      }
+      
+      // Load submissions to count completed students
+      let examSubmissionsMap = {}; // Map exam ID to submissions array
+      try {
+        const submissionsRes = await submissionService.getAllSubmissions();
+        const submissionsArray = Array.isArray(submissionsRes) 
+          ? submissionsRes 
+          : (submissionsRes?.submissions || submissionsRes?.data || []);
+        
+        // Group submissions by exam ID
+        submissionsArray.forEach((submission) => {
+          const examId = submission.exam_id?._id || submission.exam_id?.id || submission.exam_id;
+          if (examId) {
+            if (!examSubmissionsMap[examId]) {
+              examSubmissionsMap[examId] = [];
+            }
+            examSubmissionsMap[examId].push(submission);
+          }
+        });
+      } catch (submissionError) {
+        console.error('Error loading submissions for exam display:', submissionError);
+      }
+      
+      const normalized = list.map(e => {
+        const examId = e._id || e.id;
+        
+        // Find class name - first try from exam object, then from examToClassMap
+        let className = 'N/A';
+        let classId = null;
+        if (e.class || e.class_id || e.classId) {
+          classId = e.class || e.class_id || e.classId;
+          className = classesMap[classId] || classId || 'N/A';
+        } else if (examToClassMap[examId]) {
+          className = examToClassMap[examId];
+          classId = examToClassIdMap[examId];
+        }
+        
+        // Get enrolled students count from class
+        let enrolledStudents = 0;
+        if (classId && classStudentsMap[classId] !== undefined) {
+          enrolledStudents = classStudentsMap[classId];
+        }
+        
+        // Get completed students count from submissions
+        let completedStudents = 0;
+        let totalScore = 0;
+        let scoreCount = 0;
+        if (examSubmissionsMap[examId]) {
+          const submissions = examSubmissionsMap[examId];
+          // Count completed submissions (status: completed, submitted, graded)
+          const completedSubmissions = submissions.filter(sub => {
+            const status = (sub.status || '').toLowerCase();
+            return ['completed', 'submitted', 'graded'].includes(status);
+          });
+          completedStudents = completedSubmissions.length;
+          
+          // Calculate average score
+          completedSubmissions.forEach(sub => {
+            const score = sub.score ?? sub.result?.score ?? sub.summary?.score ?? sub.finalScore ?? null;
+            if (score != null) {
+              totalScore += Number(score);
+              scoreCount++;
+            }
+          });
+        }
+        
+        // Calculate average score
+        const avgScore = scoreCount > 0 ? Math.round((totalScore / scoreCount) * 100) / 100 : 0;
+        
+        // Normalize date - try multiple field names and formats
+        let dateValue = null;
+        if (e.date) {
+          dateValue = e.date;
+        } else if (e.scheduled_at) {
+          dateValue = e.scheduled_at;
+        } else if (e.scheduledAt) {
+          dateValue = e.scheduledAt;
+        } else if (e.startTime) {
+          dateValue = e.startTime;
+        } else if (e.start_time) {
+          dateValue = e.start_time;
+        } else if (e.createdAt) {
+          dateValue = e.createdAt;
+        } else if (e.created_at) {
+          dateValue = e.created_at;
+        }
+        
+        // Normalize time
+        let timeValue = e.time || '09:00';
+        // If date contains time, extract it
+        if (dateValue && typeof dateValue === 'string' && dateValue.includes('T')) {
+          const timeMatch = dateValue.match(/T(\d{2}:\d{2})/);
+          if (timeMatch) {
+            timeValue = timeMatch[1];
+          }
+        }
+        
+        return {
+          id: examId,
+          title: e.title,
+          subject: e.subject || 'General',
+          date: dateValue,
+          time: timeValue,
+          duration: e.time_limit || e.timeLimit || e.duration || e.durationMinutes || 60,
+          totalQuestions: e.total_questions ?? (Array.isArray(e.questions) ? e.questions.length : (Array.isArray(e.questionIds) ? e.questionIds.length : (e.totalQuestions || 0))),
+          enrolledStudents: enrolledStudents,
+          completedStudents: completedStudents,
+          avgScore: avgScore,
+          status: e.status || (e.isPublic ? 'scheduled' : 'draft'),
+          type: e.type || 'Exam',
+          description: e.description || '',
+          class: e.class || e.class_id || e.classId || '',
+          className: className
+        };
+      });
       setExams(normalized);
     } catch (e) {
       console.error(e);
@@ -804,34 +1132,51 @@ export default function TeacherExams() {
       setStepError('');
       setError('');
 
-      // Save AI-generated questions to question bank first
+      // Save AI-generated questions to question bank first and get their IDs
       const aiQuestions = questionList.filter(q => q._temp && q._aiData);
+      const aiQuestionIds = [];
       if (aiQuestions.length > 0) {
         try {
-          await Promise.all(aiQuestions.map(q => questionService.createQuestion(q._aiData)));
+          // Create questions one by one to get IDs
+          for (const q of aiQuestions) {
+            try {
+              const response = await questionService.createQuestion(q._aiData);
+              const created = response?.question || response?.data?.question || response;
+              const createdId = created?._id || created?.id;
+              if (createdId) {
+                aiQuestionIds.push({ originalId: q.id, newId: createdId });
+              }
+            } catch (aiError) {
+              console.error('Error saving AI question:', aiError);
+              // Try to find existing question by exact match
+              try {
+                // Get all questions and filter client-side to avoid regex issues
+                const allQuestions = await questionService.listMyQuestions();
+                const questionsList = allQuestions?.questions || allQuestions?.data?.questions || (Array.isArray(allQuestions) ? allQuestions : []);
+                const found = questionsList.find(
+                  existingQ => existingQ.question === q.question
+                );
+                if (found) {
+                  aiQuestionIds.push({ originalId: q.id, newId: found._id || found.id });
+                }
+              } catch (findError) {
+                console.error('Error finding existing question:', findError);
+              }
+            }
+          }
         } catch (aiError) {
           console.error('Error saving AI questions:', aiError);
-          // Continue anyway, questions might already exist
         }
       }
 
-      // Reload questions to get IDs for AI-generated ones
+      // Map question IDs
       const questionIds = [];
       for (const question of questionList) {
         if (question._temp && question._aiData) {
-          // Try to find the question we just created
-          try {
-            const response = await questionService.listMyQuestions({ 
-              search: question.question.substring(0, 50) 
-            });
-            const found = (response?.questions || []).find(
-              q => q.question === question.question
-            );
-            if (found) {
-              questionIds.push(found._id || found.id);
-            }
-          } catch (err) {
-            console.error('Error finding AI question:', err);
+          // Find the ID from the saved AI questions
+          const saved = aiQuestionIds.find(item => item.originalId === question.id);
+          if (saved) {
+            questionIds.push(saved.newId);
           }
         } else if (question.id && !question.id.startsWith('ai-')) {
           questionIds.push(question.id);
@@ -844,11 +1189,11 @@ export default function TeacherExams() {
         return;
       }
 
-      await examService.createExam({
+      const createResponse = await examService.createExam({
         title: form.title.trim(),
         description: form.description.trim(),
         subject: form.subject,
-        'class': form.className,
+        'class': form.classId,
         date: form.date,
         time: form.time,
         time_limit: Number(form.time_limit) || 90,
@@ -857,6 +1202,81 @@ export default function TeacherExams() {
         questions: questionIds
       });
 
+      console.log('Create exam response:', createResponse);
+
+      // Nếu có classId, thêm exam vào class
+      let examIdToAdd = null;
+      if (form.classId) {
+        try {
+          // Thử nhiều cách để lấy exam ID từ response
+          examIdToAdd = createResponse?.exam?._id || 
+                        createResponse?.exam?.id || 
+                        createResponse?.data?.exam?._id ||
+                        createResponse?.data?.exam?.id ||
+                        createResponse?._id || 
+                        createResponse?.id ||
+                        createResponse?.data?._id ||
+                        createResponse?.data?.id;
+          
+          console.log('Attempting to add exam to class:', {
+            classId: form.classId,
+            examId: examIdToAdd,
+            fullResponse: createResponse
+          });
+
+          if (examIdToAdd) {
+            const addExamResponse = await api.post(`/class/teacher/${form.classId}/add-exam`, {
+              exam_id: examIdToAdd
+            });
+            console.log('Exam đã được thêm vào class thành công:', addExamResponse);
+          }
+        } catch (addExamError) {
+          console.error('Lỗi khi thêm exam vào class:', addExamError);
+          // Sẽ thử lại sau khi load exams
+        }
+      }
+
+      // Nếu không lấy được exam ID từ response, tìm exam vừa tạo trong danh sách
+      if (form.classId && !examIdToAdd) {
+        try {
+          // Lấy danh sách exams mới nhất từ API
+          const res = await examService.listMyExams();
+          const list = Array.isArray(res?.exams) ? res.exams : (Array.isArray(res) ? res : []);
+          
+          // Tìm exam mới nhất có title giống với title vừa tạo
+          const examTitle = form.title.trim();
+          const foundExam = list.find(e => {
+            const eTitle = (e.title || '').trim();
+            const eClassId = e.class || e.class_id || e.classId || '';
+            return eTitle === examTitle && eClassId === form.classId;
+          });
+          
+          if (foundExam) {
+            examIdToAdd = foundExam._id || foundExam.id;
+            console.log('Tìm thấy exam trong danh sách:', foundExam);
+            
+            // Thử thêm exam vào class
+            try {
+              const addExamResponse = await api.post(`/class/teacher/${form.classId}/add-exam`, {
+                exam_id: examIdToAdd
+              });
+              console.log('Exam đã được thêm vào class thành công (sau khi tìm trong danh sách):', addExamResponse);
+            } catch (retryError) {
+              console.error('Lỗi khi thêm exam vào class (lần thử lại):', retryError);
+              setError(`Exam đã được tạo nhưng không thể thêm vào class: ${retryError.message || 'Unknown error'}`);
+            }
+          } else {
+            console.warn('Không tìm thấy exam vừa tạo trong danh sách. Có thể exam chưa được load hoặc title không khớp.');
+            console.log('Danh sách exams:', list.map(e => ({ title: e.title, class: e.class || e.class_id || e.classId })));
+            setError('Exam đã được tạo nhưng không thể tự động thêm vào class. Vui lòng thêm thủ công từ trang Class Detail.');
+          }
+        } catch (findError) {
+          console.error('Lỗi khi tìm exam trong danh sách:', findError);
+          setError('Exam đã được tạo nhưng không thể tự động thêm vào class. Vui lòng thêm thủ công từ trang Class Detail.');
+        }
+      }
+
+      // Reload exams để cập nhật danh sách
       await loadExams();
       setForm({ ...defaultFormState });
       setQuestionList([]);
@@ -872,7 +1292,7 @@ export default function TeacherExams() {
   };
 
   return (
-    <div className="min-h-screen py-4 sm:py-6 lg:py-8 bg-gradient-to-br from-slate-50 to-orange-50 dark:from-gray-900 dark:to-gray-800">
+    <div className="min-h-screen py-4 sm:py-6 lg:py-8 bg-gradient-to-br from-orange-50 via-white to-amber-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-6 sm:mb-8">
@@ -955,7 +1375,7 @@ export default function TeacherExams() {
         </div>
 
         {/* Filter Bar */}
-        <div className="mb-6 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-5">
+        <div className="mb-6 bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-orange-100 dark:border-orange-900/50 p-5">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-4">
             Hiển thị bản ghi trong chế độ xem này
           </h3>
@@ -972,7 +1392,7 @@ export default function TeacherExams() {
                       setFilterRules([{ ...tempFilter, field: e.target.value }]);
                     }
                   }}
-                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="px-3 py-2 border border-orange-200 dark:border-orange-500/40 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-400 transition-all"
                 >
                   <option value="title">Tiêu đề</option>
                   <option value="subject">Môn học</option>
@@ -987,7 +1407,7 @@ export default function TeacherExams() {
                       setFilterRules([{ ...tempFilter, operator: e.target.value }]);
                     }
                   }}
-                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="px-3 py-2 border border-orange-200 dark:border-orange-500/40 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-400 transition-all"
                 >
                   <option value="contains">chứa</option>
                   <option value="equals">bằng</option>
@@ -1007,7 +1427,7 @@ export default function TeacherExams() {
                       setFilterRules([]);
                     }
                   }}
-                  className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="flex-1 px-3 py-2 border border-orange-200 dark:border-orange-500/40 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-400 transition-all"
                 />
                 <button className="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
                   <MoreVertical className="w-4 h-4" />
@@ -1028,7 +1448,7 @@ export default function TeacherExams() {
                       newRules[index].field = e.target.value;
                       setFilterRules(newRules);
                     }}
-                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="px-3 py-2 border border-orange-200 dark:border-orange-500/40 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-400 transition-all"
                   >
                     <option value="title">Tiêu đề</option>
                     <option value="subject">Môn học</option>
@@ -1042,7 +1462,7 @@ export default function TeacherExams() {
                       newRules[index].operator = e.target.value;
                       setFilterRules(newRules);
                     }}
-                    className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="px-3 py-2 border border-orange-200 dark:border-orange-500/40 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-400 transition-all"
                   >
                     <option value="contains">contains</option>
                     <option value="equals">equals</option>
@@ -1058,7 +1478,7 @@ export default function TeacherExams() {
                       newRules[index].value = e.target.value;
                       setFilterRules(newRules);
                     }}
-                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="flex-1 px-3 py-2 border border-orange-200 dark:border-orange-500/40 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm focus:ring-2 focus:ring-orange-500 focus:border-orange-400 transition-all"
                   />
                   <button
                     onClick={() => {
@@ -1202,9 +1622,6 @@ export default function TeacherExams() {
                       <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                     Học Sinh
                   </th>
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                    Điểm TB
-                  </th>
                       <th 
                         className="px-6 py-4 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                         onClick={() => handleSort('status')}
@@ -1257,7 +1674,7 @@ export default function TeacherExams() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap cursor-pointer" onClick={() => navigate(`/dashboard/teacher/exams/${exam.id}`)}>
                       <div className="text-sm text-gray-900 dark:text-white font-medium">
-                        {exam.class || 'N/A'}
+                        {exam.className || exam.class || 'N/A'}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap cursor-pointer" onClick={() => navigate(`/dashboard/teacher/exams/${exam.id}`)}>
@@ -1280,15 +1697,6 @@ export default function TeacherExams() {
                       <div className="text-xs text-gray-500 dark:text-gray-400">
                         đã hoàn thành
                       </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap cursor-pointer" onClick={() => navigate(`/dashboard/teacher/exams/${exam.id}`)}>
-                      {exam.avgScore > 0 ? (
-                        <span className={`text-sm font-medium ${getScoreColor(exam.avgScore)}`}>
-                          {exam.avgScore}%
-                        </span>
-                      ) : (
-                        <span className="text-sm text-gray-400">-</span>
-                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap cursor-pointer" onClick={() => navigate(`/dashboard/teacher/exams/${exam.id}`)}>
                       <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(exam.status)}`}>
@@ -1334,38 +1742,56 @@ export default function TeacherExams() {
 
             {/* Pagination */}
             {sortedExams.length > 0 && (
-              <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4">
+              <div className="px-6 py-4 border-t border-orange-100 dark:border-gray-700 bg-gradient-to-r from-orange-50/50 to-amber-50/50 dark:from-gray-800 dark:to-gray-800">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                   <div className="text-sm text-gray-600 dark:text-gray-400">
-                    Hiển thị <span className="font-medium text-gray-900 dark:text-white">{startIndex + 1}</span>
-                    {' - '}
-                    <span className="font-medium text-gray-900 dark:text-white">{Math.min(endIndex, sortedExams.length)}</span>
-                    {' trong '}
-                    <span className="font-medium text-gray-900 dark:text-white">{sortedExams.length}</span>
+                    Hiển thị <span className="font-semibold text-orange-600 dark:text-orange-400">{startIndex + 1}</span> - <span className="font-semibold text-orange-600 dark:text-orange-400">{Math.min(endIndex, sortedExams.length)}</span> trong tổng số <span className="font-semibold text-orange-600 dark:text-orange-400">{sortedExams.length}</span> bài thi
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handlePageChange(currentPage - 1)}
                       disabled={currentPage === 1}
-                      className={`px-3 py-2 rounded-lg border text-sm transition-colors ${
-                        currentPage === 1
-                          ? 'border-gray-200 dark:border-gray-700 text-gray-400 cursor-not-allowed'
-                          : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
-                      }`}
+                      className="inline-flex items-center gap-1 rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-medium text-orange-600 transition-all hover:border-orange-300 hover:bg-orange-50 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed dark:border-orange-500/40 dark:bg-gray-800 dark:text-orange-400 dark:hover:bg-orange-900/30"
                     >
                       Trước
                     </button>
-                    <span className="text-sm text-gray-700 dark:text-gray-300">
-                      Trang <span className="font-semibold">{currentPage}</span> / <span className="font-semibold">{totalPages}</span>
-                    </span>
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                        const showPage = 
+                          page === 1 || 
+                          page === totalPages || 
+                          (page >= currentPage - 1 && page <= currentPage + 1);
+                        
+                        if (!showPage) {
+                          if (page === currentPage - 2 || page === currentPage + 2) {
+                            return (
+                              <span key={page} className="px-2 text-gray-500 dark:text-gray-400">
+                                ...
+                              </span>
+                            );
+                          }
+                          return null;
+                        }
+                        
+                        return (
+                          <button
+                            key={page}
+                            onClick={() => handlePageChange(page)}
+                            className={`h-10 w-10 rounded-xl text-sm font-semibold transition-all ${
+                              page === currentPage
+                                ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-lg scale-105'
+                                : 'border border-orange-200 bg-white text-orange-600 hover:border-orange-300 hover:bg-orange-50 dark:border-orange-500/40 dark:bg-gray-800 dark:text-orange-400 dark:hover:bg-orange-900/30'
+                            }`}
+                          >
+                            {page}
+                          </button>
+                        );
+                      })}
+                    </div>
                     <button
                       onClick={() => handlePageChange(currentPage + 1)}
                       disabled={currentPage === totalPages}
-                      className={`px-3 py-2 rounded-lg border text-sm transition-colors ${
-                        currentPage === totalPages
-                          ? 'border-gray-200 dark:border-gray-700 text-gray-400 cursor-not-allowed'
-                          : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700'
-                      }`}
+                      className="inline-flex items-center gap-1 rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-medium text-orange-600 transition-all hover:border-orange-300 hover:bg-orange-50 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed dark:border-orange-500/40 dark:bg-gray-800 dark:text-orange-400 dark:hover:bg-orange-900/30"
                     >
                       Sau
                     </button>
@@ -1468,73 +1894,68 @@ export default function TeacherExams() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">
-                            Môn Học <span className="text-red-500">*</span>
-                          </label>
-                          <select
-                            value={form.subject}
-                            onChange={(e) => setForm((prev) => ({ ...prev, subject: e.target.value }))}
-                            className="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500 dark:focus:border-orange-400 transition-all shadow-sm hover:border-gray-300 dark:hover:border-gray-500"
-                          >
-                            <option value="">Chọn môn học</option>
-                            <option value="Mathematics">Mathematics</option>
-                            <option value="Biology">Biology</option>
-                            <option value="Physics">Physics</option>
-                            <option value="Chemistry">Chemistry</option>
-                            <option value="English">English</option>
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">
                             Lớp <span className="text-red-500">*</span>
                           </label>
-                          <select
-                            value={form.className}
-                            onChange={(e) => setForm((prev) => ({ ...prev, className: e.target.value }))}
-                            className="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500 dark:focus:border-orange-400 transition-all shadow-sm hover:border-gray-300 dark:hover:border-gray-500"
-                          >
-                            <option value="">Chọn lớp</option>
-                            <option value="10A">Class 10A</option>
-                            <option value="10B">Class 10B</option>
-                            <option value="11A">Class 11A</option>
-                            <option value="11B">Class 11B</option>
-                            <option value="12A">Class 12A</option>
-                            <option value="12B">Class 12B</option>
-                          </select>
+                          {loadingClasses ? (
+                            <div className="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-700 flex items-center justify-center">
+                              <Loader2 className="w-4 h-4 animate-spin text-gray-400 mr-2" />
+                              <span className="text-sm text-gray-500 dark:text-gray-400">Đang tải lớp học...</span>
+                            </div>
+                          ) : (
+                            <select
+                              value={form.classId}
+                              onChange={(e) => setForm((prev) => ({ ...prev, classId: e.target.value }))}
+                              className="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500 dark:focus:border-orange-400 transition-all shadow-sm hover:border-gray-300 dark:hover:border-gray-500"
+                            >
+                              <option value="">Chọn lớp</option>
+                              {classes.map((cls) => (
+                                <option key={cls._id || cls.id} value={cls._id || cls.id}>
+                                  {cls.name || 'Lớp không có tên'}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          {classes.length === 0 && !loadingClasses && (
+                            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                              Chưa có lớp học nào. Vui lòng tạo lớp học trước.
+                            </p>
+                          )}
                         </div>
-                      </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">
-                            Ngày <span className="text-red-500">*</span>
+                            Ngày và Giờ <span className="text-red-500">*</span>
                           </label>
                           <input
-                            type="date"
-                            value={form.date}
-                            min={new Date().toISOString().split('T')[0]}
+                            type="datetime-local"
+                            value={form.date && form.time ? `${form.date}T${form.time}` : ''}
+                            min={new Date().toISOString().slice(0, 16)}
                             onChange={(e) => {
-                              const selectedDate = e.target.value;
-                              const today = new Date().toISOString().split('T')[0];
-                              if (selectedDate < today) {
-                                setStepError('Ngày thi không được trong quá khứ. Vui lòng chọn ngày hôm nay hoặc ngày trong tương lai.');
+                              const datetimeValue = e.target.value;
+                              if (datetimeValue) {
+                                const [date, time] = datetimeValue.split('T');
+                                const selectedDateTime = new Date(datetimeValue);
+                                const now = new Date();
+                                
+                                if (selectedDateTime < now) {
+                                  setStepError('Ngày và giờ thi không được trong quá khứ. Vui lòng chọn thời gian trong tương lai.');
+                                } else {
+                                  setStepError('');
+                                }
+                                
+                                setForm((prev) => ({ 
+                                  ...prev, 
+                                  date: date || '', 
+                                  time: time || '' 
+                                }));
                               } else {
-                                setStepError('');
+                                setForm((prev) => ({ 
+                                  ...prev, 
+                                  date: '', 
+                                  time: '' 
+                                }));
                               }
-                              setForm((prev) => ({ ...prev, date: selectedDate }));
                             }}
-                            className="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500 dark:focus:border-orange-400 transition-all shadow-sm hover:border-gray-300 dark:hover:border-gray-500"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">
-                            Giờ <span className="text-red-500">*</span>
-                          </label>
-                          <input
-                            type="time"
-                            value={form.time}
-                            onChange={(e) => setForm((prev) => ({ ...prev, time: e.target.value }))}
                             className="w-full px-4 py-3 border-2 border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500 dark:focus:border-orange-400 transition-all shadow-sm hover:border-gray-300 dark:hover:border-gray-500"
                           />
                         </div>
@@ -1638,7 +2059,7 @@ export default function TeacherExams() {
                             setQuestionMode('ai-generate');
                             setAiGenerateForm({
                               topic: '',
-                              subject: form.subject || 'Mathematics',
+                              subject: 'Mathematics', // Mặc định là Toán học
                               difficulty: 'medium',
                               count: 5,
                               tag: 'other'
@@ -1677,11 +2098,221 @@ export default function TeacherExams() {
                           </div>
                         )}
 
+                        {/* AI Validation Result */}
+                        {showValidationResult && validationResult && (
+                          <div className={`rounded-xl border-2 p-5 shadow-lg ${
+                            validationResult.overallScore >= 80
+                              ? 'border-green-300 dark:border-green-700 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/10'
+                              : validationResult.overallScore >= 60
+                              ? 'border-yellow-300 dark:border-yellow-700 bg-gradient-to-br from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/10'
+                              : 'border-red-300 dark:border-red-700 bg-gradient-to-br from-red-50 to-rose-50 dark:from-red-900/20 dark:to-rose-900/10'
+                          }`}>
+                            <div className="flex items-start justify-between mb-4">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                                  validationResult.overallScore >= 80
+                                    ? 'bg-green-500'
+                                    : validationResult.overallScore >= 60
+                                    ? 'bg-yellow-500'
+                                    : 'bg-red-500'
+                                }`}>
+                                  <Brain className="w-6 h-6 text-white" />
+                                </div>
+                                <div>
+                                  <h5 className="text-sm font-bold text-gray-900 dark:text-white">
+                                    Kết Quả Kiểm Thử AI
+                                  </h5>
+                                  <p className="text-xs text-gray-600 dark:text-gray-400">
+                                    Điểm tổng thể: <span className="font-semibold">{validationResult.overallScore}/100</span>
+                                  </p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setShowValidationResult(false)}
+                                className="p-1 hover:bg-black/10 dark:hover:bg-white/10 rounded-lg transition-colors"
+                              >
+                                <X className="w-4 h-4 text-gray-500" />
+                              </button>
+                            </div>
+
+                            {/* Overall Status */}
+                            <div className="mb-4 flex items-center gap-2 flex-wrap">
+                              {validationResult.isAnswerCorrect === false ? (
+                                <div className="flex items-center gap-2 text-red-700 dark:text-red-300 bg-red-100 dark:bg-red-900/30 px-3 py-2 rounded-lg border-2 border-red-300 dark:border-red-700">
+                                  <AlertCircle className="w-5 h-5" />
+                                  <span className="text-sm font-bold">ĐÁP ÁN KHÔNG ĐÚNG!</span>
+                                </div>
+                              ) : validationResult.isValid ? (
+                                <div className="flex items-center gap-2 text-green-700 dark:text-green-300">
+                                  <CheckCircle className="w-4 h-4" />
+                                  <span className="text-sm font-semibold">Câu hỏi hợp lệ</span>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2 text-red-700 dark:text-red-300">
+                                  <AlertCircle className="w-4 h-4" />
+                                  <span className="text-sm font-semibold">Cần cải thiện</span>
+                                </div>
+                              )}
+                              {validationResult.isReady && validationResult.isAnswerCorrect !== false && (
+                                <span className="px-2 py-1 text-xs font-medium bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 rounded-full">
+                                  Sẵn sàng sử dụng
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Answer Correctness Warning */}
+                            {validationResult.isAnswerCorrect === false && (
+                              <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border-2 border-red-300 dark:border-red-700 rounded-xl">
+                                <div className="flex items-start gap-3">
+                                  <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                                  <div>
+                                    <h6 className="text-sm font-bold text-red-800 dark:text-red-300 mb-1">
+                                      CẢNH BÁO: Đáp án được đánh dấu không đúng!
+                                    </h6>
+                                    <p className="text-xs text-red-700 dark:text-red-400">
+                                      AI đã phát hiện rằng đáp án bạn chọn ({questionForm.correctOption}) không phải là câu trả lời đúng cho câu hỏi này. 
+                                      Vui lòng kiểm tra lại và chọn đáp án đúng trước khi lưu câu hỏi.
+                                    </p>
+                                    {validationResult.feedback?.correctness && (
+                                      <p className="text-xs text-red-600 dark:text-red-400 mt-2 font-medium">
+                                        Chi tiết: {validationResult.feedback.correctness}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Strengths */}
+                            {validationResult.strengths && validationResult.strengths.length > 0 && (
+                              <div className="mb-4">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <ThumbsUp className="w-4 h-4 text-green-600 dark:text-green-400" />
+                                  <h6 className="text-xs font-bold text-gray-800 dark:text-gray-200">Điểm Mạnh</h6>
+                                </div>
+                                <ul className="space-y-1">
+                                  {validationResult.strengths.map((strength, idx) => (
+                                    <li key={idx} className="text-xs text-gray-700 dark:text-gray-300 flex items-start gap-2">
+                                      <Circle className="w-2 h-2 text-green-500 mt-1.5 fill-green-500" />
+                                      <span>{strength}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {/* Issues */}
+                            {validationResult.issues && validationResult.issues.length > 0 && (
+                              <div className="mb-4">
+                                <div className="flex items-center gap-2 mb-2">
+                                  <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400" />
+                                  <h6 className="text-xs font-bold text-gray-800 dark:text-gray-200">Vấn Đề</h6>
+                                </div>
+                                <ul className="space-y-1">
+                                  {validationResult.issues.map((issue, idx) => (
+                                    <li key={idx} className="text-xs text-gray-700 dark:text-gray-300 flex items-start gap-2">
+                                      <Circle className="w-2 h-2 text-red-500 mt-1.5 fill-red-500" />
+                                      <span>{issue}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {/* Feedback Details */}
+                            {validationResult.feedback && (
+                              <div className="mb-4 space-y-2">
+                                <h6 className="text-xs font-bold text-gray-800 dark:text-gray-200">Chi Tiết Đánh Giá</h6>
+                                <div className="grid grid-cols-1 gap-2 text-xs">
+                                  {validationResult.feedback.clarity && (
+                                    <div className="bg-white/60 dark:bg-gray-800/60 rounded-lg p-2">
+                                      <span className="font-semibold text-gray-700 dark:text-gray-300">Độ rõ ràng: </span>
+                                      <span className="text-gray-600 dark:text-gray-400">{validationResult.feedback.clarity}</span>
+                                    </div>
+                                  )}
+                                  {validationResult.feedback.difficulty && (
+                                    <div className="bg-white/60 dark:bg-gray-800/60 rounded-lg p-2">
+                                      <span className="font-semibold text-gray-700 dark:text-gray-300">Độ khó: </span>
+                                      <span className="text-gray-600 dark:text-gray-400">{validationResult.feedback.difficulty}</span>
+                                    </div>
+                                  )}
+                                  {validationResult.feedback.options && (
+                                    <div className="bg-white/60 dark:bg-gray-800/60 rounded-lg p-2">
+                                      <span className="font-semibold text-gray-700 dark:text-gray-300">Lựa chọn: </span>
+                                      <span className="text-gray-600 dark:text-gray-400">{validationResult.feedback.options}</span>
+                                    </div>
+                                  )}
+                                  {validationResult.feedback.correctness && (
+                                    <div className="bg-white/60 dark:bg-gray-800/60 rounded-lg p-2">
+                                      <span className="font-semibold text-gray-700 dark:text-gray-300">Tính chính xác: </span>
+                                      <span className="text-gray-600 dark:text-gray-400">{validationResult.feedback.correctness}</span>
+                                    </div>
+                                  )}
+                                  {validationResult.feedback.educationalValue && (
+                                    <div className="bg-white/60 dark:bg-gray-800/60 rounded-lg p-2">
+                                      <span className="font-semibold text-gray-700 dark:text-gray-300">Giá trị giáo dục: </span>
+                                      <span className="text-gray-600 dark:text-gray-400">{validationResult.feedback.educationalValue}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Suggestions */}
+                            {validationResult.suggestions && validationResult.suggestions.length > 0 && (
+                              <div>
+                                <h6 className="text-xs font-bold text-gray-800 dark:text-gray-200 mb-2">Đề Xuất Cải Thiện</h6>
+                                <ul className="space-y-1">
+                                  {validationResult.suggestions.map((suggestion, idx) => (
+                                    <li key={idx} className="text-xs text-gray-700 dark:text-gray-300 flex items-start gap-2 bg-white/60 dark:bg-gray-800/60 rounded-lg p-2">
+                                      <ArrowRight className="w-3 h-3 text-blue-500 mt-0.5" />
+                                      <span>{suggestion}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+
+                            {/* Recommended Difficulty */}
+                            {validationResult.recommendedDifficulty && validationResult.recommendedDifficulty !== questionForm.difficulty && (
+                              <div className="mt-4 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                                <p className="text-xs text-blue-700 dark:text-blue-300">
+                                  <span className="font-semibold">Đề xuất độ khó: </span>
+                                  {validationResult.recommendedDifficulty === 'easy' ? 'Dễ' :
+                                   validationResult.recommendedDifficulty === 'medium' ? 'Trung Bình' : 'Khó'}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
                         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border-2 border-gray-200 dark:border-gray-700 shadow-sm">
-                          <label className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-3 flex items-center gap-2">
-                            <FileText className="w-4 h-4 text-orange-500" />
-                            Nội Dung Câu Hỏi <span className="text-red-500">*</span>
-                          </label>
+                          <div className="flex items-center justify-between mb-3">
+                            <label className="block text-sm font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
+                              <FileText className="w-4 h-4 text-orange-500" />
+                              Nội Dung Câu Hỏi <span className="text-red-500">*</span>
+                            </label>
+                            <button
+                              type="button"
+                              onClick={handleValidateQuestion}
+                              disabled={isValidating || !questionForm.question.trim() || !Object.values(questionForm.options || {}).every(v => v?.trim()) || !questionForm.correctOption}
+                              className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-lg hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                              title="Kiểm thử câu hỏi bằng AI"
+                            >
+                              {isValidating ? (
+                                <>
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                  Đang kiểm thử...
+                                </>
+                              ) : (
+                                <>
+                                  <Brain className="w-3 h-3" />
+                                  Kiểm thử bằng AI
+                                </>
+                              )}
+                            </button>
+                          </div>
                           <textarea
                             rows={4}
                             value={questionForm.question}
@@ -1712,7 +2343,7 @@ export default function TeacherExams() {
                                         : 'bg-white dark:bg-gray-700 border-2 border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:border-orange-400 dark:hover:border-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/20 hover:scale-105'
                                     }`}
                                   >
-                                    {tag.charAt(0).toUpperCase() + tag.slice(1)}
+                                    {questionTagLabels[tag]}
                                   </button>
                                 );
                               })}
@@ -1760,7 +2391,7 @@ export default function TeacherExams() {
 
                         <div className="bg-white dark:bg-gray-800 rounded-xl p-5 border-2 border-gray-200 dark:border-gray-700 shadow-sm">
                           <label className="block text-sm font-bold text-gray-800 dark:text-gray-200 mb-3 flex items-center gap-2">
-                            <span className="text-gray-400">💡</span>
+                            <Lightbulb className="w-4 h-4 text-gray-400" />
                             Giải Thích <span className="text-xs font-normal text-gray-500 dark:text-gray-400">(tùy chọn)</span>
                           </label>
                           <textarea
@@ -1775,7 +2406,7 @@ export default function TeacherExams() {
                         <div className="bg-gradient-to-br from-orange-50/50 via-amber-50/30 to-orange-50/50 dark:from-orange-900/10 dark:via-orange-800/5 dark:to-orange-900/10 border-2 border-orange-200 dark:border-orange-800 rounded-2xl p-5 shadow-md">
                           <div className="mb-4">
                             <h5 className="text-sm font-bold text-gray-800 dark:text-gray-100 mb-1 flex items-center gap-2">
-                              <span className="text-orange-500">📋</span>
+                              <Clipboard className="w-4 h-4 text-orange-500" />
                               Multiple Choice Options <span className="text-red-500">*</span>
                             </h5>
                             <p className="text-xs text-gray-600 dark:text-gray-400">Nhập các lựa chọn A–D và chọn đáp án đúng.</p>
@@ -1843,11 +2474,12 @@ export default function TeacherExams() {
                             onClick={resetQuestionForm}
                             className="w-full sm:w-auto px-5 py-3 rounded-xl border-2 border-gray-300 dark:border-gray-600 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500 transition-all duration-200 shadow-sm hover:shadow-md"
                           >
-                            ↻ Đặt Lại
+                            <RotateCw className="w-4 h-4 inline mr-1" />
+                            Đặt Lại
                           </button>
                           <button
                             type="submit"
-                            disabled={isQuestionSubmitting}
+                            disabled={isQuestionSubmitting || (validationResult && validationResult.isAnswerCorrect === false)}
                             className="w-full sm:w-auto px-6 py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:shadow-lg hover:shadow-orange-500/50 dark:hover:shadow-orange-900/50 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-[1.02] active:scale-[0.98] disabled:transform-none"
                           >
                             {isQuestionSubmitting ? (
@@ -1889,7 +2521,7 @@ export default function TeacherExams() {
                             >
                               <option value="all">Tất cả thể loại</option>
                               {questionTagOptions.map(tag => (
-                                <option key={tag} value={tag}>{tag.charAt(0).toUpperCase() + tag.slice(1)}</option>
+                                <option key={tag} value={tag}>{questionTagLabels[tag]}</option>
                               ))}
                             </select>
 
@@ -1965,7 +2597,7 @@ export default function TeacherExams() {
                                         </p>
                                         <div className="flex flex-wrap items-center gap-2 text-xs">
                                           <span className="px-2 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200">
-                                            {question.tag}
+                                            {questionTagLabels[question.tag] || question.tag}
                                           </span>
                                           <span className={`px-2 py-1 rounded-full ${
                                             question.difficulty === 'easy' ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-200' :
@@ -2014,21 +2646,14 @@ export default function TeacherExams() {
                                   />
                                 </div>
 
+                                {/* Môn học mặc định là Toán học - không cho chọn */}
                                 <div>
                                   <label className="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">
                                     Môn học
                                   </label>
-                                  <select
-                                    value={aiGenerateForm.subject}
-                                    onChange={(e) => setAiGenerateForm({ ...aiGenerateForm, subject: e.target.value })}
-                                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                                  >
-                                    <option value="Mathematics">Mathematics</option>
-                                    <option value="Physics">Physics</option>
-                                    <option value="Chemistry">Chemistry</option>
-                                    <option value="Biology">Biology</option>
-                                    <option value="English">English</option>
-                                  </select>
+                                  <div className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                                    Toán học (Mathematics)
+                                  </div>
                                 </div>
 
                                 <div>
@@ -2070,7 +2695,7 @@ export default function TeacherExams() {
                                     className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                                   >
                                     {questionTagOptions.map(tag => (
-                                      <option key={tag} value={tag}>{tag.charAt(0).toUpperCase() + tag.slice(1)}</option>
+                                      <option key={tag} value={tag}>{questionTagLabels[tag]}</option>
                                     ))}
                                   </select>
                                 </div>
@@ -2107,7 +2732,8 @@ export default function TeacherExams() {
                             <div className="space-y-4">
                               <div className="rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-3">
                                 <p className="text-sm font-medium text-green-800 dark:text-green-300">
-                                  ✅ Đã tạo {aiGeneratedQuestions.length} câu hỏi thành công!
+                                  <CheckCircle className="w-4 h-4 inline mr-1" />
+                                  Đã tạo {aiGeneratedQuestions.length} câu hỏi thành công!
                                 </p>
                               </div>
 
@@ -2248,7 +2874,9 @@ export default function TeacherExams() {
                           </div>
                           <div className="space-y-1">
                             <dt className="font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase tracking-wide">Lớp</dt>
-                            <dd className="text-gray-900 dark:text-white font-medium">{form.className || '-'}</dd>
+                            <dd className="text-gray-900 dark:text-white font-medium">
+                              {form.classId ? (classes.find(c => (c._id || c.id) === form.classId)?.name || form.classId) : '-'}
+                            </dd>
                           </div>
                           <div className="space-y-1">
                             <dt className="font-semibold text-gray-600 dark:text-gray-400 text-xs uppercase tracking-wide">Ngày & Giờ</dt>
@@ -2441,6 +3069,153 @@ export default function TeacherExams() {
                       </>
                     )}
                   </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Subject Relevance Warning Modal */}
+        {showSubjectRelevanceModal && (
+          <div className="fixed inset-0 z-50 overflow-y-auto">
+            <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+              <div className="fixed inset-0 bg-gray-900/75 backdrop-blur-sm transition-opacity" onClick={() => setShowSubjectRelevanceModal(false)}></div>
+              
+              <div className="inline-block align-bottom bg-white dark:bg-gray-800 rounded-2xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border border-gray-200 dark:border-gray-700">
+                <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-orange-50 via-red-50 to-pink-50 dark:from-gray-800 dark:via-gray-800 dark:to-gray-800">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-orange-500 rounded-full flex items-center justify-center">
+                        <AlertCircle className="w-6 h-6 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold text-gray-900 dark:text-white">Câu Hỏi Không Liên Quan Đến Toán</h3>
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">AI đã phát hiện vấn đề với chủ đề câu hỏi</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowSubjectRelevanceModal(false)}
+                      className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                    >
+                      <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="px-6 py-6 space-y-4">
+                  <div className="bg-orange-50 dark:bg-orange-900/20 border-2 border-orange-200 dark:border-orange-800 rounded-xl p-4">
+                    <p className="text-sm text-orange-800 dark:text-orange-300 font-semibold mb-2 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      Thông Báo
+                    </p>
+                    <p className="text-sm text-orange-700 dark:text-orange-400">
+                      {subjectRelevanceMessage}
+                    </p>
+                  </div>
+
+                  <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                    <p className="text-xs font-semibold text-blue-800 dark:text-blue-300 mb-1">Lưu ý:</p>
+                    <p className="text-xs text-blue-700 dark:text-blue-400">
+                      Vui lòng tạo câu hỏi về Toán học (ví dụ: Đại số, Hình học, Giải tích, Xác suất, Thống kê)
+                    </p>
+                  </div>
+
+                  <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowSubjectRelevanceModal(false);
+                        setSubjectRelevanceMessage('');
+                      }}
+                      className="w-full px-4 py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all duration-300 flex items-center justify-center gap-2"
+                    >
+                      <X className="w-4 h-4" />
+                      Đã Hiểu
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Correct Answer Suggestion Modal */}
+        {showCorrectAnswerModal && suggestedCorrectOption && (
+          <div className="fixed inset-0 z-50 overflow-y-auto">
+            <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+              <div className="fixed inset-0 bg-gray-900/75 backdrop-blur-sm transition-opacity" onClick={() => setShowCorrectAnswerModal(false)}></div>
+              
+              <div className="inline-block align-bottom bg-white dark:bg-gray-800 rounded-2xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border border-gray-200 dark:border-gray-700">
+                <div className="px-6 py-5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-red-50 via-orange-50 to-yellow-50 dark:from-gray-800 dark:via-gray-800 dark:to-gray-800">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-red-500 rounded-full flex items-center justify-center">
+                        <AlertTriangle className="w-6 h-6 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold text-gray-900 dark:text-white">Đáp Án Không Đúng</h3>
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">AI đã phát hiện vấn đề với đáp án</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setShowCorrectAnswerModal(false)}
+                      className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                    >
+                      <X className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                    </button>
+                  </div>
+                </div>
+                
+                <div className="px-6 py-6 space-y-4">
+                  <div className="bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-800 rounded-xl p-4">
+                    <p className="text-sm text-red-800 dark:text-red-300 font-semibold mb-2 flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4" />
+                      Đáp án hiện tại: <span className="font-bold">{questionForm.correctOption}</span>
+                    </p>
+                    <p className="text-sm text-red-700 dark:text-red-400">
+                      {questionForm.options[questionForm.correctOption]}
+                    </p>
+                  </div>
+
+                  <div className="bg-green-50 dark:bg-green-900/20 border-2 border-green-200 dark:border-green-800 rounded-xl p-4">
+                    <p className="text-sm text-green-800 dark:text-green-300 font-semibold mb-2 flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4" />
+                      Đáp án đúng (AI đề xuất): <span className="font-bold">{suggestedCorrectOption}</span>
+                    </p>
+                    <p className="text-sm text-green-700 dark:text-green-400">
+                      {questionForm.options[suggestedCorrectOption]}
+                    </p>
+                  </div>
+
+                  {validationResult?.feedback?.correctness && (
+                    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                      <p className="text-xs font-semibold text-blue-800 dark:text-blue-300 mb-1">Lý do:</p>
+                      <p className="text-xs text-blue-700 dark:text-blue-400">{validationResult.feedback.correctness}</p>
+                    </div>
+                  )}
+
+                  <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
+                      Bạn muốn làm gì?
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <button
+                        type="button"
+                        onClick={handleFixCorrectAnswer}
+                        className="flex-1 px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl font-semibold hover:shadow-lg transition-all duration-300 flex items-center justify-center gap-2"
+                      >
+                        <CheckCircle className="w-4 h-4" />
+                        Sửa Thành {suggestedCorrectOption}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleKeepCurrentAnswer}
+                        className="flex-1 px-4 py-3 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-xl font-medium hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
+                      >
+                        Giữ Nguyên
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

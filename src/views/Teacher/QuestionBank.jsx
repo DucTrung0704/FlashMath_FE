@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Plus, Search, Filter, Trash2, Edit, Eye, X, Check, AlertCircle, BookOpen, Tag, Gauge, FileText, Sparkles, Loader2 } from 'lucide-react';
+import { Plus, Search, Filter, Trash2, Edit, Eye, X, Check, AlertCircle, BookOpen, Tag, Gauge, FileText, Sparkles, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { questionService } from '../../services/questionService';
 import { aiService } from '../../services/aiService';
 
@@ -12,6 +12,8 @@ export default function QuestionBank() {
   const [selectedDifficulty, setSelectedDifficulty] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [selectedQuestions, setSelectedQuestions] = useState([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(10);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -30,7 +32,20 @@ export default function QuestionBank() {
   });
 
   const tagOptions = ['geometry', 'algebra', 'probability', 'calculus', 'statistics', 'other'];
+  const tagLabels = {
+    'geometry': 'Hình học',
+    'algebra': 'Đại số',
+    'probability': 'Xác suất',
+    'calculus': 'Giải tích',
+    'statistics': 'Thống kê',
+    'other': 'Khác'
+  };
   const difficultyOptions = ['easy', 'medium', 'hard'];
+  const difficultyLabels = {
+    'easy': 'Dễ',
+    'medium': 'Trung bình',
+    'hard': 'Khó'
+  };
   const optionKeys = ['A', 'B', 'C', 'D'];
 
   const defaultFormState = {
@@ -58,7 +73,8 @@ export default function QuestionBank() {
       if (selectedDifficulty !== 'all') params.difficulty = selectedDifficulty;
       if (selectedStatus !== 'all') params.isActive = selectedStatus === 'active';
 
-      const response = await questionService.listMyQuestions(params);
+      // Sử dụng API /question/teacher/all để lấy tất cả questions trong question bank chung
+      const response = await questionService.listAll(params);
       const questionsList = response?.questions || response?.data?.questions || (Array.isArray(response) ? response : []);
       setQuestions(questionsList);
     } catch (err) {
@@ -220,10 +236,10 @@ export default function QuestionBank() {
 
   // Toggle select all
   const toggleSelectAll = () => {
-    if (selectedQuestions.length === questions.length) {
+    if (selectedQuestions.length === currentPageQuestions.length) {
       setSelectedQuestions([]);
     } else {
-      setSelectedQuestions(questions.map(q => q._id || q.id));
+      setSelectedQuestions(currentPageQuestions.map(q => q._id || q.id));
     }
   };
 
@@ -279,6 +295,17 @@ export default function QuestionBank() {
     return matchesSearch;
   });
 
+  // Pagination calculations
+  const totalPages = Math.max(1, Math.ceil((filteredQuestions.length || 0) / pageSize));
+  const startIndex = (currentPage - 1) * pageSize;
+  const endIndex = startIndex + pageSize;
+  const currentPageQuestions = filteredQuestions.slice(startIndex, endIndex);
+
+  // Reset to first page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedTag, selectedDifficulty, selectedStatus]);
+
   if (loading && questions.length === 0) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -291,44 +318,48 @@ export default function QuestionBank() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-6 dark:bg-gray-900">
+    <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-amber-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900 py-4 sm:py-6 lg:py-8">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         {/* Header */}
-        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Question Bank</h1>
-            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-              Quản lý ngân hàng câu hỏi của bạn
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => {
-                setAiForm({
-                  topic: '',
-                  subject: 'Mathematics',
-                  difficulty: 'medium',
-                  count: 5,
-                  tag: 'other'
-                });
-                setGeneratedQuestions([]);
-                setShowAIGenerateModal(true);
-              }}
-              className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-2 text-sm font-medium text-white transition-all hover:from-purple-700 hover:to-indigo-700 hover:shadow-lg"
-            >
-              <Sparkles className="h-4 w-4" />
-              Generate with AI
-            </button>
-            <button
-              onClick={() => {
-                setForm(defaultFormState);
-                setShowCreateModal(true);
-              }}
-              className="inline-flex items-center gap-2 rounded-lg bg-orange-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-700"
-            >
-              <Plus className="h-4 w-4" />
-              Tạo câu hỏi mới
-            </button>
+        <div className="mb-6 sm:mb-8">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold bg-gradient-to-r from-orange-600 to-orange-500 bg-clip-text text-transparent">
+                Ngân Hàng Câu Hỏi
+              </h1>
+              <p className="mt-1 sm:mt-2 text-sm text-gray-600 dark:text-gray-400">
+                Ngân hàng câu hỏi chung - Tất cả giáo viên có thể xem và sử dụng
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setAiForm({
+                    topic: '',
+                    subject: 'Mathematics',
+                    difficulty: 'medium',
+                    count: 5,
+                    tag: 'other'
+                  });
+                  setGeneratedQuestions([]);
+                  setShowAIGenerateModal(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-all hover:shadow-lg hover:scale-105 active:scale-95"
+              >
+                <Sparkles className="h-4 w-4" />
+                Tạo bằng AI
+              </button>
+              <button
+                onClick={() => {
+                  setForm(defaultFormState);
+                  setShowCreateModal(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-orange-500 to-orange-600 px-4 py-2 text-sm font-semibold text-white transition-all hover:shadow-lg hover:scale-105 active:scale-95"
+              >
+                <Plus className="h-4 w-4" />
+                Tạo Câu Hỏi
+              </button>
+            </div>
           </div>
         </div>
 
@@ -339,7 +370,7 @@ export default function QuestionBank() {
         )}
 
         {/* Filters and Search */}
-        <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
+        <div className="mb-6 rounded-2xl border border-orange-100 dark:border-orange-900/50 bg-white dark:bg-gray-800 shadow-lg p-4 sm:p-6">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             {/* Search */}
             <div className="relative">
@@ -349,7 +380,7 @@ export default function QuestionBank() {
                 placeholder="Tìm kiếm câu hỏi..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-white pl-10 pr-4 py-2 text-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                className="w-full rounded-xl border border-orange-200 dark:border-orange-500/40 bg-white dark:bg-gray-700 pl-10 pr-4 py-2.5 text-sm text-gray-900 dark:text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-400 transition-all"
               />
             </div>
 
@@ -357,11 +388,11 @@ export default function QuestionBank() {
             <select
               value={selectedTag}
               onChange={(e) => setSelectedTag(e.target.value)}
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              className="rounded-xl border border-orange-200 dark:border-orange-500/40 bg-white dark:bg-gray-700 px-4 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-400 transition-all"
             >
               <option value="all">Tất cả thể loại</option>
               {tagOptions.map(tag => (
-                <option key={tag} value={tag}>{tag.charAt(0).toUpperCase() + tag.slice(1)}</option>
+                <option key={tag} value={tag}>{tagLabels[tag]}</option>
               ))}
             </select>
 
@@ -369,11 +400,11 @@ export default function QuestionBank() {
             <select
               value={selectedDifficulty}
               onChange={(e) => setSelectedDifficulty(e.target.value)}
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              className="rounded-xl border border-orange-200 dark:border-orange-500/40 bg-white dark:bg-gray-700 px-4 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-400 transition-all"
             >
               <option value="all">Tất cả độ khó</option>
               {difficultyOptions.map(diff => (
-                <option key={diff} value={diff}>{diff.charAt(0).toUpperCase() + diff.slice(1)}</option>
+                <option key={diff} value={diff}>{difficultyLabels[diff]}</option>
               ))}
             </select>
 
@@ -381,7 +412,7 @@ export default function QuestionBank() {
             <select
               value={selectedStatus}
               onChange={(e) => setSelectedStatus(e.target.value)}
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+              className="rounded-xl border border-orange-200 dark:border-orange-500/40 bg-white dark:bg-gray-700 px-4 py-2.5 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-400 transition-all"
             >
               <option value="all">Tất cả trạng thái</option>
               <option value="active">Đang hoạt động</option>
@@ -391,16 +422,16 @@ export default function QuestionBank() {
 
           {/* Bulk Actions */}
           {selectedQuestions.length > 0 && (
-            <div className="mt-4 flex items-center justify-between rounded-lg bg-orange-50 p-3 dark:bg-orange-900/20">
-              <span className="text-sm text-gray-700 dark:text-gray-300">
-                Đã chọn {selectedQuestions.length} câu hỏi
+            <div className="mt-4 flex items-center justify-between rounded-xl bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20 border border-orange-200 dark:border-orange-800 p-4">
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Đã chọn <span className="font-semibold text-orange-600 dark:text-orange-400">{selectedQuestions.length}</span> câu hỏi
               </span>
               <button
                 onClick={() => {
                   setCurrentQuestion({ _id: 'bulk' });
                   setShowDeleteModal(true);
                 }}
-                className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
+                className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-red-700 hover:shadow-md"
               >
                 <Trash2 className="h-4 w-4" />
                 Xóa đã chọn
@@ -410,80 +441,84 @@ export default function QuestionBank() {
         </div>
 
         {/* Questions List */}
-        <div className="rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800">
+        <div className="rounded-2xl border border-orange-100 dark:border-orange-900/50 bg-white dark:bg-gray-800 shadow-lg overflow-hidden">
           {filteredQuestions.length === 0 ? (
             <div className="p-12 text-center">
-              <BookOpen className="mx-auto h-12 w-12 text-gray-400" />
-              <p className="mt-4 text-gray-600 dark:text-gray-400">Không có câu hỏi nào</p>
+              <BookOpen className="mx-auto h-16 w-16 text-gray-400 mb-4" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Không có câu hỏi nào</h3>
+              <p className="text-gray-600 dark:text-gray-400">Hãy tạo câu hỏi đầu tiên của bạn</p>
             </div>
           ) : (
+            <>
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead className="bg-gray-50 dark:bg-gray-700">
+                <thead className="bg-gradient-to-r from-orange-50 to-amber-50 dark:from-gray-700 dark:to-gray-800">
                   <tr>
-                    <th className="px-4 py-3 text-left">
+                    <th className="px-6 py-4 text-left">
                       <input
                         type="checkbox"
-                        checked={selectedQuestions.length === questions.length && questions.length > 0}
+                        checked={selectedQuestions.length === currentPageQuestions.length && currentPageQuestions.length > 0 && currentPageQuestions.every(q => selectedQuestions.includes(q._id || q.id))}
                         onChange={toggleSelectAll}
-                        className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                        className="rounded border-orange-300 text-orange-600 focus:ring-orange-500 dark:border-orange-600"
                       />
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-700 dark:text-gray-300">
+                    <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300">
                       Câu hỏi
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-700 dark:text-gray-300">
+                    <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300">
                       Thể loại
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-700 dark:text-gray-300">
+                    <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300">
                       Độ khó
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-700 dark:text-gray-300">
+                    <th className="px-6 py-4 text-left text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300">
                       Trạng thái
                     </th>
-                    <th className="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-700 dark:text-gray-300">
+                    <th className="px-6 py-4 text-right text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300">
                       Thao tác
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800">
-                  {filteredQuestions.map((question) => {
+                <tbody className="divide-y divide-orange-100 dark:divide-gray-700 bg-white dark:bg-gray-800">
+                  {currentPageQuestions.map((question) => {
                     const isSelected = selectedQuestions.includes(question._id || question.id);
                     return (
-                      <tr key={question._id || question.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                        <td className="px-4 py-4">
+                      <tr key={question._id || question.id} className={`hover:bg-orange-50/50 dark:hover:bg-gray-700/50 transition-colors ${
+                        isSelected ? 'bg-orange-50 dark:bg-orange-900/20' : ''
+                      }`}>
+                        <td className="px-6 py-4">
                           <input
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => toggleQuestionSelection(question._id || question.id)}
-                            className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
+                            className="rounded border-orange-300 text-orange-600 focus:ring-orange-500 dark:border-orange-600"
                           />
                         </td>
-                        <td className="px-4 py-4">
+                        <td className="px-6 py-4">
                           <div className="max-w-md">
                             <p className="text-sm font-medium text-gray-900 dark:text-white line-clamp-2">
                               {question.question}
                             </p>
                           </div>
                         </td>
-                        <td className="px-4 py-4">
-                          <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                        <td className="px-6 py-4">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-3 py-1.5 text-xs font-semibold text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
                             <Tag className="h-3 w-3" />
-                            {question.tag}
+                            {tagLabels[question.tag] || question.tag}
                           </span>
                         </td>
-                        <td className="px-4 py-4">
-                          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium ${
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold ${
                             question.difficulty === 'easy' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' :
                             question.difficulty === 'medium' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300' :
                             'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
                           }`}>
                             <Gauge className="h-3 w-3" />
-                            {question.difficulty}
+                            {difficultyLabels[question.difficulty] || question.difficulty}
                           </span>
                         </td>
-                        <td className="px-4 py-4">
-                          <span className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold ${
                             question.isActive 
                               ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
                               : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
@@ -491,18 +526,18 @@ export default function QuestionBank() {
                             {question.isActive ? 'Hoạt động' : 'Đã ẩn'}
                           </span>
                         </td>
-                        <td className="px-4 py-4 text-right">
+                        <td className="px-6 py-4 text-right">
                           <div className="flex items-center justify-end gap-2">
                             <button
                               onClick={() => openViewModal(question._id || question.id)}
-                              className="rounded-lg p-2 text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+                              className="rounded-xl p-2 text-blue-600 transition-all hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 hover:scale-110 active:scale-95"
                               title="Xem chi tiết"
                             >
                               <Eye className="h-4 w-4" />
                             </button>
                             <button
                               onClick={() => openEditModal(question)}
-                              className="rounded-lg p-2 text-gray-600 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700"
+                              className="rounded-xl p-2 text-green-600 transition-all hover:bg-green-50 dark:text-green-400 dark:hover:bg-green-900/30 hover:scale-110 active:scale-95"
                               title="Chỉnh sửa"
                             >
                               <Edit className="h-4 w-4" />
@@ -512,7 +547,7 @@ export default function QuestionBank() {
                                 setCurrentQuestion(question);
                                 setShowDeleteModal(true);
                               }}
-                              className="rounded-lg p-2 text-red-600 transition-colors hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30"
+                              className="rounded-xl p-2 text-red-600 transition-all hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/30 hover:scale-110 active:scale-95"
                               title="Xóa"
                             >
                               <Trash2 className="h-4 w-4" />
@@ -525,6 +560,67 @@ export default function QuestionBank() {
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination Controls */}
+            {filteredQuestions.length > 0 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-orange-100 dark:border-gray-700 bg-gradient-to-r from-orange-50/50 to-amber-50/50 dark:from-gray-800 dark:to-gray-800 px-6 py-4">
+                <div className="text-sm text-gray-600 dark:text-gray-400">
+                  Hiển thị <span className="font-semibold text-orange-600 dark:text-orange-400">{startIndex + 1}</span> - <span className="font-semibold text-orange-600 dark:text-orange-400">{Math.min(endIndex, filteredQuestions.length)}</span> trong tổng số <span className="font-semibold text-orange-600 dark:text-orange-400">{filteredQuestions.length}</span> câu hỏi
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="inline-flex items-center gap-1 rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-medium text-orange-600 transition-all hover:border-orange-300 hover:bg-orange-50 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed dark:border-orange-500/40 dark:bg-gray-800 dark:text-orange-400 dark:hover:bg-orange-900/30"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Trước
+                  </button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                      const showPage = 
+                        page === 1 || 
+                        page === totalPages || 
+                        (page >= currentPage - 1 && page <= currentPage + 1);
+                      
+                      if (!showPage) {
+                        if (page === currentPage - 2 || page === currentPage + 2) {
+                          return (
+                            <span key={page} className="px-2 text-gray-500 dark:text-gray-400">
+                              ...
+                            </span>
+                          );
+                        }
+                        return null;
+                      }
+                      
+                      return (
+                        <button
+                          key={page}
+                          onClick={() => setCurrentPage(page)}
+                          className={`h-10 w-10 rounded-xl text-sm font-semibold transition-all ${
+                            page === currentPage
+                              ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white shadow-lg scale-105'
+                              : 'border border-orange-200 bg-white text-orange-600 hover:border-orange-300 hover:bg-orange-50 dark:border-orange-500/40 dark:bg-gray-800 dark:text-orange-400 dark:hover:bg-orange-900/30'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="inline-flex items-center gap-1 rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-medium text-orange-600 transition-all hover:border-orange-300 hover:bg-orange-50 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed dark:border-orange-500/40 dark:bg-gray-800 dark:text-orange-400 dark:hover:bg-orange-900/30"
+                  >
+                    Sau
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </div>
 
@@ -631,7 +727,7 @@ export default function QuestionBank() {
                       className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                     >
                       {tagOptions.map(tag => (
-                        <option key={tag} value={tag}>{tag.charAt(0).toUpperCase() + tag.slice(1)}</option>
+                        <option key={tag} value={tag}>{tagLabels[tag]}</option>
                       ))}
                     </select>
                   </div>
@@ -645,7 +741,7 @@ export default function QuestionBank() {
                       className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-orange-500 focus:outline-none focus:ring-2 focus:ring-orange-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                     >
                       {difficultyOptions.map(diff => (
-                        <option key={diff} value={diff}>{diff.charAt(0).toUpperCase() + diff.slice(1)}</option>
+                        <option key={diff} value={diff}>{difficultyLabels[diff]}</option>
                       ))}
                     </select>
                   </div>
@@ -757,11 +853,11 @@ export default function QuestionBank() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Thể loại</label>
-                    <p className="mt-1 text-gray-900 dark:text-white">{currentQuestion.tag}</p>
+                    <p className="mt-1 text-gray-900 dark:text-white">{tagLabels[currentQuestion.tag] || currentQuestion.tag}</p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Độ khó</label>
-                    <p className="mt-1 text-gray-900 dark:text-white">{currentQuestion.difficulty}</p>
+                    <p className="mt-1 text-gray-900 dark:text-white">{difficultyLabels[currentQuestion.difficulty] || currentQuestion.difficulty}</p>
                   </div>
                 </div>
                 {currentQuestion.explanation && (
@@ -891,33 +987,18 @@ export default function QuestionBank() {
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div>
                       <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                        Chủ đề <span className="text-red-500">*</span>
+                        Chủ đề cụ thể <span className="text-red-500">*</span>
                       </label>
                       <input
                         type="text"
                         value={aiForm.topic}
                         onChange={(e) => setAiForm({ ...aiForm, topic: e.target.value })}
-                        placeholder="Ví dụ: Quadratic Equations, Geometry, Algebra..."
+                        placeholder="Ví dụ: Phương trình bậc hai, Hình học, Đại số, Tích phân..."
                         className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                       />
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                        Môn học <span className="text-red-500">*</span>
-                      </label>
-                      <select
-                        value={aiForm.subject}
-                        onChange={(e) => setAiForm({ ...aiForm, subject: e.target.value })}
-                        className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                      >
-                        <option value="Mathematics">Mathematics</option>
-                        <option value="Physics">Physics</option>
-                        <option value="Chemistry">Chemistry</option>
-                        <option value="Biology">Biology</option>
-                        <option value="English">English</option>
-                        <option value="Other">Other</option>
-                      </select>
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        Nhập chủ đề cụ thể trong môn Toán để AI tạo câu hỏi chính xác hơn. Ví dụ: "Phương trình bậc hai", "Hình học tam giác", "Đại số", "Tích phân"
+                      </p>
                     </div>
 
                     <div>
@@ -929,9 +1010,9 @@ export default function QuestionBank() {
                         onChange={(e) => setAiForm({ ...aiForm, difficulty: e.target.value })}
                         className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                       >
-                        <option value="easy">Easy</option>
-                        <option value="medium">Medium</option>
-                        <option value="hard">Hard</option>
+                        <option value="easy">Dễ</option>
+                        <option value="medium">Trung bình</option>
+                        <option value="hard">Khó</option>
                       </select>
                     </div>
 
@@ -959,7 +1040,7 @@ export default function QuestionBank() {
                         className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-100 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                       >
                         {tagOptions.map(tag => (
-                          <option key={tag} value={tag}>{tag.charAt(0).toUpperCase() + tag.slice(1)}</option>
+                          <option key={tag} value={tag}>{tagLabels[tag]}</option>
                         ))}
                       </select>
                     </div>
